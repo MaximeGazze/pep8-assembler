@@ -1,237 +1,119 @@
-use std::iter::Peekable;
-use std::str::Chars;
+use address::{Address, AddressTable};
+use dotcommand::DotCommand;
+use instruction::Instruction;
+use lexer::{Token, TokenType};
 
-#[derive(Debug, PartialEq)]
-enum TokenType {
-    Char,
-    String,
-    Number,
-    Minus,
-    Plus,
-    Comma,
-    DotCommand,
-    Label,
-    Identifier,
+mod address;
+mod dotcommand;
+mod instruction;
+mod lexer;
+mod register;
+mod types;
+
+enum Statement {
+    Instruction(Instruction),
+    DotCommand(DotCommand),
 }
 
-#[derive(Debug)]
-struct Token {
-    kind: TokenType,
-    value: String,
-}
-
-impl Token {
-    fn new(kind: TokenType, value: String) -> Self {
-        Token { kind, value }
-    }
-}
-
-struct Lexer<'a> {
-    chars: Peekable<Chars<'a>>,
-    row_pos: usize,
-    col_pos: usize,
-}
-
-impl<'a> Lexer<'a> {
-    fn new(s: &'a String) -> Self {
-        Self {
-            chars: s.chars().peekable(),
-            row_pos: 0,
-            col_pos: 0,
+impl Statement {
+    pub fn from_tokens(tokens: &[Token]) -> Result<Self, Box<dyn std::error::Error>> {
+        match tokens.first() {
+            None => Err(Box::from("tokens is empty")),
+            Some(token) => match token.kind {
+                TokenType::Identifier => Ok(Self::Instruction(Instruction::from_tokens(tokens)?)),
+                TokenType::DotCommand => Ok(Self::DotCommand(DotCommand::from_tokens(tokens)?)),
+                _ => Err(Box::from("invalid token type")),
+            },
         }
     }
+}
 
-    fn peek_next_char(&mut self) -> Option<&char> {
-        self.chars.peek()
-    }
+struct StatementLine {
+    label: Option<String>,
+    statement: Statement,
+}
 
-    fn next_char(&mut self) -> Option<char> {
-        self.col_pos += 1;
-        self.chars.next()
-    }
+impl StatementLine {
+    pub fn from_tokens(tokens: &[Token]) -> Result<Self, Box<dyn std::error::Error>> {
+        // fetch a possible label from the token list
+        let label = match tokens.first() {
+            None => return Err(Box::from("tokens is empty")),
+            Some(token) => match token.kind {
+                TokenType::Label => Some(token.value.clone()),
+                _ => None,
+            },
+        };
 
-    fn parse_escaped_char(&mut self) -> Result<char, Box<dyn std::error::Error>> {
-        if let Some(c) = self.next_char() {
-            match c {
-                'b' => Ok('\x08'),
-                'f' => Ok('\x0C'),
-                'n' => Ok('\n'),
-                'r' => Ok('\r'),
-                't' => Ok('\t'),
-                'v' => Ok('\x0B'),
-                'x' | 'X' => {
-                    let mut hex_str = String::new();
-
-                    for _ in 0..2 {
-                        match self.next_char() {
-                            None => return Err(Box::from("iterator is empty")),
-                            Some(c) => hex_str.push(c),
-                        }
-                    }
-
-                    match u32::from_str_radix(&hex_str.as_str(), 16) {
-                        Ok(value) => match std::char::from_u32(value) {
-                            None => Err(Box::from("invalid hex value")),
-                            Some(c) => Ok(c),
-                        },
-                        Err(_) => Err(Box::from("invalid hex value")),
-                    }
-                }
-                '\"' => Ok('\"'),
-                '\'' => Ok('\''),
-                '\\' => Ok('\\'),
-                _ => Err(Box::from("invalid escaped char")),
-            }
+        // determine if the statement on this line is an instruction or a dot command
+        let statement = Statement::from_tokens(if label.is_some() {
+            tokens
+                .get(1..)
+                .ok_or::<Box<dyn std::error::Error>>(Box::from("unexpected end of tokens"))?
         } else {
-            Err(Box::from("iterator is empty"))
-        }
-    }
+            tokens
+        })?;
 
-    fn parse(&mut self) -> Result<Vec<Vec<Token>>, Box<dyn std::error::Error>> {
-        let mut lines = vec![];
-        let mut tokens = vec![];
-
-        while let Some(c) = self.next_char() {
-            match c {
-                ';' => {
-                    while let Some(c) = self.peek_next_char() {
-                        if *c == '\n' {
-                            break;
-                        }
-
-                        self.next_char();
-                    }
-                }
-                '\n' => {
-                    if !tokens.is_empty() {
-                        lines.push(tokens);
-                        tokens = vec![];
-                    }
-
-                    self.row_pos += 1;
-                    self.col_pos = 0;
-                }
-                ' ' | '\t' => continue,
-                '-' => tokens.push(Token::new(TokenType::Minus, String::new())),
-                '+' => tokens.push(Token::new(TokenType::Plus, String::new())),
-                ',' => tokens.push(Token::new(TokenType::Comma, String::new())),
-                '\'' => {
-                    let mut value = String::new();
-
-                    match self.next_char() {
-                        None => return Err("invalid char".into()),
-                        Some(next_c) => match next_c {
-                            '\'' => return Err(Box::from("invalid character")),
-                            '\\' => {
-                                if let Ok(escaped_char) = self.parse_escaped_char() {
-                                    value.push(escaped_char);
-                                } else {
-                                    return Err(Box::from("invalid char"));
-                                }
-                            }
-                            _ => value.push(next_c),
-                        },
-                    }
-
-                    match self.next_char() {
-                        Some('\'') => tokens.push(Token::new(TokenType::Char, value)),
-                        _ => return Err(Box::from("invalid char")),
-                    }
-                }
-                '"' => {
-                    let mut value = String::new();
-
-                    loop {
-                        match self.next_char() {
-                            None => return Err(Box::from("invalid string")),
-                            Some(next_c) => match next_c {
-                                '\"' => break,
-                                '\\' => {
-                                    if let Ok(escaped_char) = self.parse_escaped_char() {
-                                        value.push(escaped_char);
-                                    } else {
-                                        return Err(Box::from("invalid string"));
-                                    }
-                                }
-                                _ => value.push(next_c),
-                            },
-                        }
-                    }
-
-                    tokens.push(Token::new(TokenType::String, value));
-                }
-                '0'..='9' => {
-                    let mut value = String::new();
-
-                    value.push(c);
-
-                    if c == '0' {
-                        if let Some(next_c) = self.peek_next_char() {
-                            if *next_c == 'x' || *next_c == 'X' {
-                                value.push(self.next_char().unwrap());
-                            }
-                        }
-                    }
-
-                    while let Some(next_c) = self.peek_next_char() {
-                        match next_c {
-                            '0'..='9' => value.push(self.next_char().unwrap()),
-                            ' ' | '\t' | ',' => break,
-                            _ => return Err(Box::from("invalid number")),
-                        }
-                    }
-
-                    tokens.push(Token::new(TokenType::Number, value));
-                }
-                'a'..='z' | 'A'..='Z' | '_' | ':' | '.' => {
-                    let mut value = String::new();
-                    let mut token_type = TokenType::Identifier;
-
-                    if c == '.' {
-                        token_type = TokenType::DotCommand;
-                    }
-
-                    value.push(c);
-
-                    while let Some(next_c) = self.peek_next_char() {
-                        match next_c {
-                            'a'..='z' | 'A'..='Z' | '0'..='9' | '_' => {
-                                value.push(self.next_char().unwrap());
-                            }
-                            ':' => {
-                                if token_type == TokenType::DotCommand {
-                                    return Err(Box::from("invalid dot command"));
-                                }
-
-                                self.next_char();
-                                token_type = TokenType::Label;
-
-                                break;
-                            }
-                            _ => break,
-                        }
-                    }
-
-                    tokens.push(Token::new(token_type, value));
-                }
-                _ => return Err(Box::from("invalid char")),
-            }
-        }
-
-        if !tokens.is_empty() {
-            lines.push(tokens);
-        }
-
-        Ok(lines)
+        Ok(Self { statement, label })
     }
 }
 
-fn parse_string(s: String) -> Result<Vec<Vec<Token>>, Box<dyn std::error::Error>> {
-    let mut lexer = Lexer::new(&s);
+fn assemble(lines: Vec<Vec<Token>>) -> Vec<u8> {
+    let code = vec![];
+    let address = 0;
 
-    lexer.parse()
+    // TODO create instruction vector
+    let address_table = AddressTable::new();
+
+    for line in lines {
+        // TODO
+    }
+
+    code
 }
 
 fn main() {
-    println!("{:?}", parse_string(String::from("BR main ; comment")));
+    let s = String::from(
+        r#"
+;File: exer0804.pep
+;Computer Systems, Fourth edition
+;Exercise 8.4
+;
+         BR      main        ;Branch around data
+num:     .BLOCK  2           ;Global variable
+main:    DECI    num,d       ;Input decimal value
+         DECO    num,d       ;Output decimal value
+         CHARO   '\n',i      
+         STRO    msg,d       ;Output message
+         STOP                
+msg:     .ASCII  "That's all.\n\x00"
+         .END    
+"#,
+    );
+
+    let r = lexer::parse_string(s).unwrap();
+
+    for l in r {
+        println!("{:?}", l);
+    }
+
+    let res = Address::from_tokens_short(&[
+        Token {
+            kind: TokenType::String,
+            value: String::from("ab"),
+        },
+        Token {
+            kind: TokenType::Comma,
+            value: String::from(","),
+        },
+        Token {
+            kind: TokenType::Identifier,
+            value: String::from("i"),
+        },
+    ]);
+
+    if res.is_ok() {
+        println!("{:?}", res);
+    } else {
+        println!("{:?}", res);
+    }
 }
