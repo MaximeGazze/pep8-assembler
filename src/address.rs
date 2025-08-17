@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{
-    lexer::{Token, TokenType},
-    types::Pep8Word,
-};
+use crate::{lexer::Token, types::Pep8Word};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AddrLocation {
@@ -13,14 +10,11 @@ pub enum AddrLocation {
 
 impl AddrLocation {
     pub fn from_token(token: &Token) -> Result<Self, Box<dyn std::error::Error>> {
-        match token.kind {
-            TokenType::Char | TokenType::String => {
-                Ok(AddrLocation::Memory(Pep8Word::from_str(&token.value)?))
-            }
-            TokenType::Number => Ok(AddrLocation::Memory(Pep8Word::from_number_str(
-                &token.value,
-            )?)),
-            TokenType::Identifier => Ok(AddrLocation::Label(token.value.clone())),
+        match token {
+            Token::Char(value) => Ok(AddrLocation::Memory(Pep8Word::try_from(value)?)),
+            Token::String(value) => Ok(AddrLocation::Memory(Pep8Word::try_from(value)?)),
+            Token::Number(value) => Ok(AddrLocation::Memory(Pep8Word::new(*value))),
+            Token::Identifier(value) => Ok(AddrLocation::Label(value.clone())),
             _ => Err(Box::from("invalid address token")),
         }
     }
@@ -88,13 +82,13 @@ impl Address {
                 location: AddrLocation::from_token(address_token)?,
                 mode: AddrMode::Immediate,
             }),
-            [address_token, comma_token, mode_token] if comma_token.kind == TokenType::Comma => {
-                let mode = AddrMode::from_str(&mode_token.value)?;
+            [address_token, Token::Comma, Token::Identifier(mode_value)] => {
+                let mode = AddrMode::from_str(&mode_value)?;
 
                 match mode {
                     AddrMode::Immediate | AddrMode::Indexed => Ok(Address {
                         location: AddrLocation::from_token(address_token)?,
-                        mode: AddrMode::from_str(&mode_token.value)?,
+                        mode,
                     }),
                     _ => Err(Box::from("illegal addressing mode")),
                 }
@@ -108,8 +102,8 @@ impl Address {
         legal_addressing_modes: &[AddrMode],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         match tokens {
-            [address_token, comma_token, mode_token] if comma_token.kind == TokenType::Comma => {
-                let mode = AddrMode::from_str(&mode_token.value)?;
+            [address_token, Token::Comma, Token::Identifier(mode_value)] => {
+                let mode = AddrMode::from_str(&mode_value)?;
 
                 if legal_addressing_modes.contains(&mode) {
                     Ok(Address {

@@ -2,30 +2,14 @@ use std::iter::Peekable;
 use std::vec::IntoIter;
 
 #[derive(Debug, PartialEq)]
-pub enum TokenType {
-    Char,
-    String,
-    Number,
-    Minus,
-    Plus,
+pub enum Token {
+    Char(char),
+    String(String),
+    Number(u16),
     Comma,
-    DotCommand,
-    Label,
-    Identifier,
-}
-
-// TODO change token type to token and store value in the enum
-
-#[derive(Debug)]
-pub struct Token {
-    pub kind: TokenType,
-    pub value: String,
-}
-
-impl Token {
-    fn new(kind: TokenType, value: String) -> Self {
-        Token { kind, value }
-    }
+    DotCommand(String),
+    Label(String),
+    Identifier(String),
 }
 
 struct Lexer {
@@ -35,7 +19,7 @@ struct Lexer {
 }
 
 impl Lexer {
-    fn new(s: String) -> Self {
+    fn new(s: &str) -> Self {
         let chars: Vec<_> = s.chars().collect();
 
         Self {
@@ -118,29 +102,21 @@ impl Lexer {
                     self.col_pos = 0;
                 }
                 ' ' | '\t' => continue,
-                '-' => tokens.push(Token::new(TokenType::Minus, String::new())),
-                '+' => tokens.push(Token::new(TokenType::Plus, String::new())),
-                ',' => tokens.push(Token::new(TokenType::Comma, String::new())),
+                // '-' => tokens.push(Token::Minus),
+                // '+' => tokens.push(Token::Plus),
+                ',' => tokens.push(Token::Comma),
                 '\'' => {
-                    let mut value = String::new();
-
-                    match self.next_char() {
-                        None => return Err("invalid char".into()),
+                    let value = match self.next_char() {
+                        None => return Err(Box::from("invalid char")),
                         Some(next_c) => match next_c {
-                            '\'' => return Err(Box::from("invalid character")),
-                            '\\' => {
-                                if let Ok(escaped_char) = self.parse_escaped_char() {
-                                    value.push(escaped_char);
-                                } else {
-                                    return Err(Box::from("invalid char"));
-                                }
-                            }
-                            _ => value.push(next_c),
+                            '\'' => return Err(Box::from("invalid char")),
+                            '\\' => self.parse_escaped_char()?,
+                            _ => next_c,
                         },
-                    }
+                    };
 
                     match self.next_char() {
-                        Some('\'') => tokens.push(Token::new(TokenType::Char, value)),
+                        Some('\'') => tokens.push(Token::Char(value)),
                         _ => return Err(Box::from("invalid char")),
                     }
                 }
@@ -152,21 +128,15 @@ impl Lexer {
                             None => return Err(Box::from("invalid string")),
                             Some(next_c) => match next_c {
                                 '\"' => break,
-                                '\\' => {
-                                    if let Ok(escaped_char) = self.parse_escaped_char() {
-                                        value.push(escaped_char);
-                                    } else {
-                                        return Err(Box::from("invalid string"));
-                                    }
-                                }
+                                '\\' => value.push(self.parse_escaped_char()?),
                                 _ => value.push(next_c),
                             },
                         }
                     }
 
-                    tokens.push(Token::new(TokenType::String, value));
+                    tokens.push(Token::String(value));
                 }
-                '0'..='9' => {
+                '-' | '+' | '0'..='9' => {
                     let mut value = String::new();
 
                     value.push(c);
@@ -187,15 +157,19 @@ impl Lexer {
                         }
                     }
 
-                    tokens.push(Token::new(TokenType::Number, value));
+                    let number_value = if value.starts_with("0x") || value.starts_with("0X") {
+                        u16::from_str_radix(&value[2..], 16)
+                            .or::<Box<dyn std::error::Error>>(Err(Box::from("invalid number")))?
+                    } else {
+                        value
+                            .parse()
+                            .or::<Box<dyn std::error::Error>>(Err(Box::from("invalid number")))?
+                    };
+
+                    tokens.push(Token::Number(number_value));
                 }
                 'a'..='z' | 'A'..='Z' | '_' | ':' | '.' => {
                     let mut value = String::new();
-                    let mut token_type = TokenType::Identifier;
-
-                    if c == '.' {
-                        token_type = TokenType::DotCommand;
-                    }
 
                     value.push(c);
 
@@ -205,20 +179,26 @@ impl Lexer {
                                 value.push(self.next_char().unwrap());
                             }
                             ':' => {
-                                if token_type == TokenType::DotCommand {
+                                if value.starts_with('.') {
                                     return Err(Box::from("invalid dot command"));
                                 }
 
                                 self.next_char();
-                                token_type = TokenType::Label;
+                                tokens.push(Token::Label(value));
 
                                 break;
                             }
-                            _ => break,
+                            _ => {
+                                if value.starts_with('.') {
+                                    tokens.push(Token::DotCommand(value));
+                                } else {
+                                    tokens.push(Token::Identifier(value));
+                                }
+
+                                break;
+                            }
                         }
                     }
-
-                    tokens.push(Token::new(token_type, value));
                 }
                 _ => return Err(Box::from("invalid char")),
             }
@@ -232,7 +212,7 @@ impl Lexer {
     }
 }
 
-pub fn parse_string(s: String) -> Result<Vec<Vec<Token>>, Box<dyn std::error::Error>> {
+pub fn parse_str(s: &str) -> Result<Vec<Vec<Token>>, Box<dyn std::error::Error>> {
     let mut lexer = Lexer::new(s);
 
     lexer.parse()

@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum Register {
     Accumulator,
     IndexRegister,

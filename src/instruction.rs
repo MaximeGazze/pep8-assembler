@@ -1,7 +1,9 @@
 use crate::address::{AddrMode, Address, AddressTable};
 use crate::lexer::Token;
 use crate::register::Register;
+use crate::types::Pep8Byte;
 
+#[derive(Debug)]
 pub enum Instruction {
     STOP,
     RETTR,
@@ -23,14 +25,14 @@ pub enum Instruction {
     ASRr(Register),
     ROLr(Register),
     RORr(Register),
-    NOPn(u8),
+    NOPn(Pep8Byte),
     NOP(Address),
     DECI(Address),
     DECO(Address),
     STRO(Address),
     CHARI(Address),
     CHARO(Address),
-    RETn(u8),
+    RETn(Pep8Byte),
     ADDSP(Address),
     SUBSP(Address),
     ADDr(Register, Address),
@@ -46,14 +48,14 @@ pub enum Instruction {
 
 impl Instruction {
     pub fn from_tokens(tokens: &[Token]) -> Result<Self, Box<dyn std::error::Error>> {
-        let [instruction_token, other_tokens @ ..] = tokens else {
+        let [Token::Identifier(instruction), other_tokens @ ..] = tokens else {
             return Err(Box::from("missing instruction token"));
         };
 
-        match &instruction_token.value.to_uppercase()[..] {
+        match &instruction.to_uppercase()[..] {
             "STOP" => Ok(Self::STOP),
             "RETTR" => Ok(Self::RETTR),
-            "MOVSPA" => Ok(Self::RETTR),
+            "MOVSPA" => Ok(Self::MOVSPA),
             "MOVFLGA" => Ok(Self::MOVFLGA),
             "BR" => Ok(Self::BR(Address::from_tokens_short(other_tokens)?)),
             "BRLE" => Ok(Self::BRLE(Address::from_tokens_short(other_tokens)?)),
@@ -77,10 +79,10 @@ impl Instruction {
             "ROLX" => Ok(Self::ROLr(Register::IndexRegister)),
             "RORA" => Ok(Self::RORr(Register::Accumulator)),
             "RORX" => Ok(Self::RORr(Register::IndexRegister)),
-            "NOP0" => Ok(Self::NOPn(0)),
-            "NOP1" => Ok(Self::NOPn(1)),
-            "NOP2" => Ok(Self::NOPn(2)),
-            "NOP3" => Ok(Self::NOPn(3)),
+            "NOP0" => Ok(Self::NOPn(Pep8Byte::new(0))),
+            "NOP1" => Ok(Self::NOPn(Pep8Byte::new(1))),
+            "NOP2" => Ok(Self::NOPn(Pep8Byte::new(2))),
+            "NOP3" => Ok(Self::NOPn(Pep8Byte::new(3))),
             "NOP" => Ok(Self::NOP(Address::from_tokens_long(
                 other_tokens,
                 &[AddrMode::Immediate],
@@ -143,14 +145,14 @@ impl Instruction {
                     AddrMode::StackIndexedDeferred,
                 ],
             )?)),
-            "RET0" => Ok(Self::RETn(0)),
-            "RET1" => Ok(Self::RETn(1)),
-            "RET2" => Ok(Self::RETn(2)),
-            "RET3" => Ok(Self::RETn(3)),
-            "RET4" => Ok(Self::RETn(4)),
-            "RET5" => Ok(Self::RETn(5)),
-            "RET6" => Ok(Self::RETn(6)),
-            "RET7" => Ok(Self::RETn(7)),
+            "RET0" => Ok(Self::RETn(Pep8Byte::new(0))),
+            "RET1" => Ok(Self::RETn(Pep8Byte::new(1))),
+            "RET2" => Ok(Self::RETn(Pep8Byte::new(2))),
+            "RET3" => Ok(Self::RETn(Pep8Byte::new(3))),
+            "RET4" => Ok(Self::RETn(Pep8Byte::new(4))),
+            "RET5" => Ok(Self::RETn(Pep8Byte::new(5))),
+            "RET6" => Ok(Self::RETn(Pep8Byte::new(6))),
+            "RET7" => Ok(Self::RETn(Pep8Byte::new(7))),
             "ADDSP" => Ok(Self::ADDSP(Address::from_tokens_long(
                 other_tokens,
                 &[
@@ -509,9 +511,53 @@ impl Instruction {
         }
     }
 
+    pub fn byte_size(&self) -> usize {
+        match self {
+            Self::STOP
+            | Self::RETTR
+            | Self::MOVSPA
+            | Self::MOVFLGA
+            | Self::NOTr(..)
+            | Self::NEGr(..)
+            | Self::ASLr(..)
+            | Self::ASRr(..)
+            | Self::ROLr(..)
+            | Self::RORr(..)
+            | Self::NOPn(..)
+            | Self::RETn(..) => 1,
+            Self::BR(..)
+            | Self::BRLE(..)
+            | Self::BRLT(..)
+            | Self::BREQ(..)
+            | Self::BRNE(..)
+            | Self::BRGE(..)
+            | Self::BRGT(..)
+            | Self::BRV(..)
+            | Self::BRC(..)
+            | Self::CALL(..)
+            | Self::NOP(..)
+            | Self::DECI(..)
+            | Self::DECO(..)
+            | Self::STRO(..)
+            | Self::CHARI(..)
+            | Self::CHARO(..)
+            | Self::ADDSP(..)
+            | Self::SUBSP(..)
+            | Self::ADDr(..)
+            | Self::SUBr(..)
+            | Self::ANDr(..)
+            | Self::ORr(..)
+            | Self::CPr(..)
+            | Self::LDr(..)
+            | Self::LDBYTEr(..)
+            | Self::STr(..)
+            | Self::STBYTEr(..) => 3,
+        }
+    }
+
     pub fn as_bytes(
         &self,
-        address_table: AddressTable,
+        address_table: &AddressTable,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let mut bytes = vec![];
 
@@ -531,7 +577,10 @@ impl Instruction {
             | Self::CALL(address) => {
                 let address_location = address_table
                     .resolve(address)
-                    .ok_or::<Box<dyn std::error::Error>>(Box::from("cannot resolve address"))?;
+                    .ok_or::<Box<dyn std::error::Error>>(Box::from(format!(
+                        "cannot resolve address {:?}",
+                        address
+                    )))?;
 
                 bytes.push(self.get_specifier() + address.mode.as_byte_short()?);
                 bytes.extend_from_slice(&address_location.as_bytes());
@@ -543,10 +592,10 @@ impl Instruction {
             | Self::ROLr(register)
             | Self::RORr(register) => bytes.push(0b00100010 + register.as_byte()), // 0010001r
             Self::NOPn(n) => {
-                if *n > 0b11 {
+                if *n > Pep8Byte::new(0b11) {
                     return Err(Box::from("count is too large"));
                 } else {
-                    bytes.push(0b00100100 + n);
+                    bytes.push((Pep8Byte::new(0b00100100) + n).as_byte());
                 }
             }
             Self::NOP(address)
@@ -559,16 +608,19 @@ impl Instruction {
             | Self::SUBSP(address) => {
                 let address_location = address_table
                     .resolve(address)
-                    .ok_or::<Box<dyn std::error::Error>>(Box::from("cannot resolve address"))?;
+                    .ok_or::<Box<dyn std::error::Error>>(Box::from(format!(
+                        "cannot resolve address {:?}",
+                        address
+                    )))?;
 
                 bytes.push(self.get_specifier() + address.mode.as_byte_long());
                 bytes.extend_from_slice(&address_location.as_bytes());
             }
             Self::RETn(n) => {
-                if *n > 0b111 {
+                if *n > Pep8Byte::new(0b111) {
                     return Err(Box::from("count is too large"));
                 } else {
-                    bytes.push(0b01011000 + n);
+                    bytes.push((Pep8Byte::new(0b01011000) + n).as_byte());
                 }
             }
             Self::ADDr(register, address)
@@ -582,7 +634,10 @@ impl Instruction {
             | Self::STBYTEr(register, address) => {
                 let address_location = address_table
                     .resolve(address)
-                    .ok_or::<Box<dyn std::error::Error>>(Box::from("cannot resolve address"))?;
+                    .ok_or::<Box<dyn std::error::Error>>(Box::from(format!(
+                        "cannot resolve address {:?}",
+                        address
+                    )))?;
 
                 bytes.push(
                     self.get_specifier() + (register.as_byte() << 3) + address.mode.as_byte_long(),

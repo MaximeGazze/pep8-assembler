@@ -1,7 +1,8 @@
 use address::{Address, AddressTable};
 use dotcommand::DotCommand;
 use instruction::Instruction;
-use lexer::{Token, TokenType};
+use lexer::Token;
+use types::Pep8Word;
 
 mod address;
 mod dotcommand;
@@ -10,6 +11,7 @@ mod lexer;
 mod register;
 mod types;
 
+#[derive(Debug)]
 enum Statement {
     Instruction(Instruction),
     DotCommand(DotCommand),
@@ -19,15 +21,33 @@ impl Statement {
     pub fn from_tokens(tokens: &[Token]) -> Result<Self, Box<dyn std::error::Error>> {
         match tokens.first() {
             None => Err(Box::from("tokens is empty")),
-            Some(token) => match token.kind {
-                TokenType::Identifier => Ok(Self::Instruction(Instruction::from_tokens(tokens)?)),
-                TokenType::DotCommand => Ok(Self::DotCommand(DotCommand::from_tokens(tokens)?)),
+            Some(token) => match token {
+                Token::Identifier(_) => Ok(Self::Instruction(Instruction::from_tokens(tokens)?)),
+                Token::DotCommand(_) => Ok(Self::DotCommand(DotCommand::from_tokens(tokens)?)),
                 _ => Err(Box::from("invalid token type")),
             },
         }
     }
+
+    pub fn byte_size(&self) -> usize {
+        match self {
+            Self::Instruction(instruction) => instruction.byte_size(),
+            Self::DotCommand(dotcommand) => dotcommand.byte_size(),
+        }
+    }
+
+    pub fn as_bytes(
+        &self,
+        address_table: &AddressTable,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        match self {
+            Self::Instruction(instruction) => instruction.as_bytes(address_table),
+            Self::DotCommand(dotcommand) => dotcommand.as_bytes(address_table),
+        }
+    }
 }
 
+#[derive(Debug)]
 struct StatementLine {
     label: Option<String>,
     statement: Statement,
@@ -35,40 +55,57 @@ struct StatementLine {
 
 impl StatementLine {
     pub fn from_tokens(tokens: &[Token]) -> Result<Self, Box<dyn std::error::Error>> {
-        // fetch a possible label from the token list
-        let label = match tokens.first() {
-            None => return Err(Box::from("tokens is empty")),
-            Some(token) => match token.kind {
-                TokenType::Label => Some(token.value.clone()),
-                _ => None,
-            },
-        };
+        match tokens {
+            [] => Err(Box::from("tokens is empty")),
+            [Token::Label(label), tokens @ ..] => Ok(Self {
+                label: Some(label.clone()),
+                statement: Statement::from_tokens(tokens)?,
+            }),
+            [tokens @ ..] => Ok(Self {
+                label: None,
+                statement: Statement::from_tokens(tokens)?,
+            }),
+        }
+    }
 
-        // determine if the statement on this line is an instruction or a dot command
-        let statement = Statement::from_tokens(if label.is_some() {
-            tokens
-                .get(1..)
-                .ok_or::<Box<dyn std::error::Error>>(Box::from("unexpected end of tokens"))?
-        } else {
-            tokens
-        })?;
+    pub fn byte_size(&self) -> usize {
+        self.statement.byte_size()
+    }
 
-        Ok(Self { statement, label })
+    pub fn as_bytes(
+        &self,
+        address_table: &AddressTable,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        self.statement.as_bytes(address_table)
     }
 }
 
-fn assemble(lines: Vec<Vec<Token>>) -> Vec<u8> {
-    let code = vec![];
-    let address = 0;
+fn assemble(lines: Vec<Vec<Token>>) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut statement_lines = vec![];
+    let mut byte_code = vec![];
+    let mut address = 0;
 
-    // TODO create instruction vector
-    let address_table = AddressTable::new();
+    let mut address_table = AddressTable::new();
 
     for line in lines {
-        // TODO
+        let statement_line = StatementLine::from_tokens(&line)?;
+
+        if let Some(ref label) = statement_line.label {
+            address_table.insert(label.clone(), Pep8Word::new(address as u16));
+        }
+
+        address += statement_line.byte_size();
+
+        statement_lines.push(statement_line);
     }
 
-    code
+    for statement_line in statement_lines {
+        let bytes = statement_line.as_bytes(&address_table)?;
+
+        byte_code.extend(bytes);
+    }
+
+    Ok(byte_code)
 }
 
 fn main() {
@@ -86,29 +123,25 @@ main:    DECI    num,d       ;Input decimal value
          STRO    msg,d       ;Output message
          STOP                
 msg:     .ASCII  "That's all.\n\x00"
+a:       .ADDRSS num
          .END    
 "#,
     );
 
-    let r = lexer::parse_string(s).unwrap();
+    let r = lexer::parse_str(&s).unwrap();
 
-    for l in r {
+    for l in &r {
         println!("{:?}", l);
     }
 
+    let byte_code = assemble(r).unwrap();
+
+    println!("{:02X?}", byte_code);
+
     let res = Address::from_tokens_short(&[
-        Token {
-            kind: TokenType::String,
-            value: String::from("ab"),
-        },
-        Token {
-            kind: TokenType::Comma,
-            value: String::from(","),
-        },
-        Token {
-            kind: TokenType::Identifier,
-            value: String::from("i"),
-        },
+        Token::String(String::from("ab")),
+        Token::Comma,
+        Token::Identifier(String::from("i")),
     ]);
 
     if res.is_ok() {
