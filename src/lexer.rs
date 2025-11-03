@@ -1,7 +1,7 @@
 use std::iter::Peekable;
 use std::vec::IntoIter;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     Char(char),
     String(String),
@@ -102,8 +102,6 @@ impl Lexer {
                     self.col_pos = 0;
                 }
                 ' ' | '\t' => continue,
-                // '-' => tokens.push(Token::Minus),
-                // '+' => tokens.push(Token::Plus),
                 ',' => tokens.push(Token::Comma),
                 '\'' => {
                     let value = match self.next_char() {

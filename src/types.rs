@@ -1,4 +1,25 @@
-use std::ops::Add;
+use std::{fmt::Display, ops::Add};
+
+#[derive(Debug)]
+pub enum Error {
+    InvalidAscii(char),
+    InvalidArgumentSize(String),
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidAscii(value) => {
+                write!(f, "invalid ascii character: {value}")
+            }
+            Self::InvalidArgumentSize(message) => {
+                write!(f, "invalid argument size: {message}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pep8Word(u16);
@@ -13,35 +34,55 @@ impl Pep8Word {
     }
 }
 
+impl TryFrom<char> for Pep8Word {
+    type Error = Error;
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        if value.is_ascii() {
+            Ok(Self::new(value as u16))
+        } else {
+            Err(Self::Error::InvalidAscii(value))
+        }
+    }
+}
+
 impl TryFrom<&char> for Pep8Word {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Error;
 
     fn try_from(value: &char) -> Result<Self, Self::Error> {
         if value.is_ascii() {
             Ok(Self::new(*value as u16))
         } else {
-            Err(Box::from("invalid ascii character"))
+            Err(Self::Error::InvalidAscii(*value))
         }
     }
 }
 
 impl TryFrom<&[u8]> for Pep8Word {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Error;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let word = match value.len() {
-            0 => 0,
-            1 => value[0] as u16,
-            2 => (value[0] as u16) << 8 | (value[1] as u16),
-            _ => return Err(Box::from("bytes must be at most length 2")),
-        };
+        match value.len() {
+            0 => Ok(Self(0)),
+            1 => Ok(Self(value[0] as u16)),
+            2 => Ok(Self((value[0] as u16) << 8 | (value[1] as u16))),
+            _ => Err(Self::Error::InvalidArgumentSize(String::from(
+                "bytes must be at most length 2",
+            ))),
+        }
+    }
+}
 
-        Ok(Self(word))
+impl TryFrom<String> for Pep8Word {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from(value.as_bytes())
     }
 }
 
 impl TryFrom<&String> for Pep8Word {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Error;
 
     fn try_from(value: &String) -> Result<Self, Self::Error> {
         Self::try_from(value.as_bytes())
@@ -49,7 +90,7 @@ impl TryFrom<&String> for Pep8Word {
 }
 
 impl TryFrom<&str> for Pep8Word {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Self::try_from(value.as_bytes())
@@ -104,19 +145,19 @@ impl Ord for Pep8Byte {
 }
 
 impl TryFrom<&char> for Pep8Byte {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Error;
 
     fn try_from(value: &char) -> Result<Self, Self::Error> {
         if value.is_ascii() {
             Ok(Self::new(*value as u8))
         } else {
-            Err(Box::from("invalid ascii character"))
+            Err(Error::InvalidAscii(*value))
         }
     }
 }
 
 impl TryFrom<&String> for Pep8Byte {
-    type Error = Box<dyn std::error::Error>;
+    type Error = Error;
 
     fn try_from(value: &String) -> Result<Self, Self::Error> {
         let bytes = value.as_bytes();
@@ -124,7 +165,11 @@ impl TryFrom<&String> for Pep8Byte {
         let value = match bytes.len() {
             0 => 0,
             1 => bytes[0] as u8,
-            _ => return Err(Box::from("string must be at most length 1")),
+            _ => {
+                return Err(Self::Error::InvalidArgumentSize(String::from(
+                    "string must be at most length 1",
+                )))
+            }
         };
 
         Ok(Self(value))

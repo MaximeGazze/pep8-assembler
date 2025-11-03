@@ -49,7 +49,7 @@ pub enum Instruction {
 impl Instruction {
     pub fn from_tokens(tokens: &[Token]) -> Result<Self, Box<dyn std::error::Error>> {
         let [Token::Identifier(instruction), other_tokens @ ..] = tokens else {
-            return Err(Box::from("missing instruction token"));
+            panic!("missing instruction token");
         };
 
         match &instruction.to_uppercase()[..] {
@@ -593,7 +593,7 @@ impl Instruction {
             | Self::RORr(register) => bytes.push(0b00100010 + register.as_byte()), // 0010001r
             Self::NOPn(n) => {
                 if *n > Pep8Byte::new(0b11) {
-                    return Err(Box::from("count is too large"));
+                    panic!("count for NOP is too large: {}", n.as_byte());
                 } else {
                     bytes.push((Pep8Byte::new(0b00100100) + n).as_byte());
                 }
@@ -618,7 +618,7 @@ impl Instruction {
             }
             Self::RETn(n) => {
                 if *n > Pep8Byte::new(0b111) {
-                    return Err(Box::from("count is too large"));
+                    panic!("count for RET is too large: {}", n.as_byte());
                 } else {
                     bytes.push((Pep8Byte::new(0b01011000) + n).as_byte());
                 }

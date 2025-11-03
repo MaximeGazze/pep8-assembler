@@ -1,6 +1,29 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use crate::{lexer::Token, types::Pep8Word};
+
+#[derive(Debug)]
+pub enum Error {
+    InvalidAddressTokenType(Token),
+    InvalidAddrModeString(String),
+    IllegalAddrMode(AddrMode),
+    MalformedAddrMode,
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidAddressTokenType(token) => {
+                write!(f, "invalid address token type: {token:?}")
+            }
+            Self::InvalidAddrModeString(value) => write!(f, "invalid addressing mode: {value}"),
+            Self::IllegalAddrMode(mode) => write!(f, "illegal addressing mode: {mode}"),
+            Self::MalformedAddrMode => write!(f, "addressing mode malformed"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AddrLocation {
@@ -9,13 +32,13 @@ pub enum AddrLocation {
 }
 
 impl AddrLocation {
-    pub fn from_token(token: &Token) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_token(token: Token) -> Result<Self, Box<dyn std::error::Error>> {
         match token {
-            Token::Char(value) => Ok(AddrLocation::Memory(Pep8Word::try_from(value)?)),
-            Token::String(value) => Ok(AddrLocation::Memory(Pep8Word::try_from(value)?)),
-            Token::Number(value) => Ok(AddrLocation::Memory(Pep8Word::new(*value))),
-            Token::Identifier(value) => Ok(AddrLocation::Label(value.clone())),
-            _ => Err(Box::from("invalid address token")),
+            Token::Char(value) => Ok(Self::Memory(Pep8Word::try_from(value)?)),
+            Token::String(value) => Ok(Self::Memory(Pep8Word::try_from(value)?)),
+            Token::Number(value) => Ok(Self::Memory(Pep8Word::new(value))),
+            Token::Identifier(value) => Ok(Self::Label(value)),
+            _ => Err(Box::new(Error::InvalidAddressTokenType(token))),
         }
     }
 }
@@ -32,8 +55,23 @@ pub enum AddrMode {
     StackIndexedDeferred,
 }
 
+impl Display for AddrMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Immediate => write!(f, "i"),
+            Self::Direct => write!(f, "d"),
+            Self::Indirect => write!(f, "n"),
+            Self::StackRelative => write!(f, "s"),
+            Self::StackRelativeDeferred => write!(f, "sf"),
+            Self::Indexed => write!(f, "x"),
+            Self::StackIndexed => write!(f, "sx"),
+            Self::StackIndexedDeferred => write!(f, "sxf"),
+        }
+    }
+}
+
 impl AddrMode {
-    pub fn from_str(s: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_str(s: &str) -> Result<Self, Error> {
         match s {
             "i" => Ok(Self::Immediate),
             "d" => Ok(Self::Direct),
@@ -43,7 +81,7 @@ impl AddrMode {
             "x" => Ok(Self::Indexed),
             "sx" => Ok(Self::StackIndexed),
             "sxf" => Ok(Self::StackIndexedDeferred),
-            _ => Err(Box::from("invalid addressing mode string")),
+            _ => Err(Error::InvalidAddrModeString(String::from(s))),
         }
     }
 
@@ -51,7 +89,7 @@ impl AddrMode {
         match &self {
             Self::Immediate => Ok(0),
             Self::Indexed => Ok(1),
-            _ => Err(Box::from("invalid register type")),
+            _ => Err(Box::from("illegal addressing mode")),
         }
     }
 
@@ -79,7 +117,7 @@ impl Address {
     pub fn from_tokens_short(tokens: &[Token]) -> Result<Self, Box<dyn std::error::Error>> {
         match tokens {
             [address_token] => Ok(Address {
-                location: AddrLocation::from_token(address_token)?,
+                location: AddrLocation::from_token(address_token.clone())?,
                 mode: AddrMode::Immediate,
             }),
             [address_token, Token::Comma, Token::Identifier(mode_value)] => {
@@ -87,7 +125,7 @@ impl Address {
 
                 match mode {
                     AddrMode::Immediate | AddrMode::Indexed => Ok(Address {
-                        location: AddrLocation::from_token(address_token)?,
+                        location: AddrLocation::from_token(address_token.clone())?,
                         mode,
                     }),
                     _ => Err(Box::from("illegal addressing mode")),
@@ -107,7 +145,7 @@ impl Address {
 
                 if legal_addressing_modes.contains(&mode) {
                     Ok(Address {
-                        location: AddrLocation::from_token(address_token)?,
+                        location: AddrLocation::from_token(address_token.clone())?,
                         mode,
                     })
                 } else {
