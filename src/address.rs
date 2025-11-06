@@ -137,13 +137,13 @@ impl Address {
 
     pub fn from_tokens_long(
         tokens: &[Token],
-        legal_addressing_modes: &[AddrMode],
+        legal_addressing_modes: &[&str],
     ) -> Result<Self, Box<dyn std::error::Error>> {
         match tokens {
             [address_token, Token::Comma, Token::Identifier(mode_value)] => {
                 let mode = AddrMode::from_str(&mode_value)?;
 
-                if legal_addressing_modes.contains(&mode) {
+                if legal_addressing_modes.contains(&mode_value.as_str()) {
                     Ok(Address {
                         location: AddrLocation::from_token(address_token.clone())?,
                         mode,
