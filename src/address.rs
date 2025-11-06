@@ -43,7 +43,7 @@ impl AddrLocation {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AddrMode {
     Immediate,
     Direct,
@@ -85,11 +85,11 @@ impl AddrMode {
         }
     }
 
-    pub fn as_byte_short(&self) -> Result<u8, Box<dyn std::error::Error>> {
+    pub fn as_byte_short(&self) -> Result<u8, Error> {
         match &self {
             Self::Immediate => Ok(0),
             Self::Indexed => Ok(1),
-            _ => Err(Box::from("illegal addressing mode")),
+            _ => Err(Error::IllegalAddrMode(self.clone())),
         }
     }
 
@@ -128,10 +128,10 @@ impl Address {
                         location: AddrLocation::from_token(address_token.clone())?,
                         mode,
                     }),
-                    _ => Err(Box::from("illegal addressing mode")),
+                    _ => Err(Box::new(Error::IllegalAddrMode(mode))),
                 }
             }
-            _ => Err(Box::from("malformed addressing mode")),
+            _ => Err(Box::new(Error::MalformedAddrMode)),
         }
     }
 
@@ -149,10 +149,10 @@ impl Address {
                         mode,
                     })
                 } else {
-                    Err(Box::from("illegal addressing mode"))
+                    Err(Box::new(Error::IllegalAddrMode(mode)))
                 }
             }
-            _ => Err(Box::from("malformed addressing mode")),
+            _ => Err(Box::new(Error::MalformedAddrMode)),
         }
     }
 }
