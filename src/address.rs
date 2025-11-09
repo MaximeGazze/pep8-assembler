@@ -7,6 +7,7 @@ pub enum Error {
     InvalidAddressTokenType(Token),
     InvalidAddrModeString(String),
     IllegalAddrMode(AddrMode),
+    UndefinedSymbol(String),
     MalformedAddrMode,
 }
 
@@ -18,6 +19,7 @@ impl Display for Error {
             }
             Self::InvalidAddrModeString(value) => write!(f, "invalid addressing mode: {value}"),
             Self::IllegalAddrMode(mode) => write!(f, "illegal addressing mode: {mode}"),
+            Self::UndefinedSymbol(symbol) => write!(f, "undefined symbol: {symbol}"),
             Self::MalformedAddrMode => write!(f, "addressing mode malformed"),
         }
     }

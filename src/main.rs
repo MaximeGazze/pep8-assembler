@@ -42,7 +42,7 @@ impl Statement {
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         match self {
             Self::Instruction(instruction) => instruction.as_bytes(address_table),
-            Self::DotCommand(dotcommand) => dotcommand.as_bytes(address_table),
+            Self::DotCommand(dotcommand) => Ok(dotcommand.as_bytes(address_table)?),
         }
     }
 }

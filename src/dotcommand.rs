@@ -1,8 +1,31 @@
+use std::fmt::Display;
+
 use crate::{
-    address::AddressTable,
+    address::{self, AddressTable},
     lexer::Token,
     types::{Pep8Byte, Pep8Word},
 };
+
+#[derive(Debug)]
+pub enum Error {
+    InvalidArguments(String),
+    InvalidDotCommand(String),
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidArguments(message) => {
+                write!(f, "invalid arguments for dot command: {message}")
+            }
+            Self::InvalidDotCommand(name) => {
+                write!(f, "invalid dot command: {name}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {}
 
 #[derive(Debug)]
 pub enum DotCommand {
@@ -25,26 +48,36 @@ impl DotCommand {
         match &dotcommand.to_uppercase()[..] {
             ".ADDRSS" => match other_tokens {
                 [Token::Identifier(label)] => Ok(DotCommand::ADDRSS(label.clone())),
-                _ => return Err(Box::from("")),
+                _ => Err(Box::new(Error::InvalidArguments(String::from(
+                    "label argument required",
+                )))),
             },
             ".ASCII" => match other_tokens {
                 [Token::String(value)] => Ok(Self::ASCII(value.clone())),
-                _ => Err(Box::from("string argument required")),
+                _ => Err(Box::new(Error::InvalidArguments(String::from(
+                    "string argument required",
+                )))),
             },
             ".BLOCK" => match other_tokens {
                 [Token::Number(value)] => Ok(Self::BLOCK(*value as usize)),
-                _ => Err(Box::from("number argument required")),
+                _ => Err(Box::new(Error::InvalidArguments(String::from(
+                    "number argument required",
+                )))),
             },
             // ".BURN" => ,
             ".BYTE" => match other_tokens {
                 [Token::Char(value)] => Ok(Self::BYTE(Pep8Byte::try_from(value)?)),
                 [Token::Number(value)] => Ok(Self::BYTE(Pep8Byte::try_from(value)?)),
                 [Token::String(value)] => Ok(Self::BYTE(Pep8Byte::try_from(value)?)),
-                _ => Err(Box::from("char, number or string argument required")),
+                _ => Err(Box::new(Error::InvalidArguments(String::from(
+                    "char, number or string argument required",
+                )))),
             },
             ".END" => match other_tokens {
                 [] => Ok(Self::END),
-                _ => Err(Box::from("no arguments expected")),
+                _ => Err(Box::new(Error::InvalidArguments(String::from(
+                    "no arguments expected",
+                )))),
             },
             // ".EQUATE" => match other_tokens {
             //
@@ -53,23 +86,19 @@ impl DotCommand {
                 [Token::Char(value)] => Ok(Self::WORD(Pep8Word::try_from(value)?)),
                 [Token::Number(value)] => Ok(Self::WORD(Pep8Word::try_from(value)?)),
                 [Token::String(value)] => Ok(Self::WORD(Pep8Word::try_from(value)?)),
-                _ => Err(Box::from("char, number or string argument required")),
+                _ => Err(Box::new(Error::InvalidArguments(String::from(
+                    "char, number or string argument required",
+                )))),
             },
-            _ => Err(Box::from("invalid dot command token")),
+            _ => Err(Box::new(Error::InvalidDotCommand(dotcommand.clone()))),
         }
     }
 
-    pub fn as_bytes(
-        &self,
-        address_table: &AddressTable,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    pub fn as_bytes(&self, address_table: &AddressTable) -> Result<Vec<u8>, address::Error> {
         match self {
             Self::ADDRSS(value) => address_table
                 .get(value)
-                .ok_or::<Box<dyn std::error::Error>>(Box::from(format!(
-                    "cannot resolve symbol {:?}",
-                    value
-                )))
+                .ok_or(address::Error::UndefinedSymbol(value.clone()))
                 .and_then(|word| Ok(word.as_bytes().to_vec())),
             Self::ASCII(value) => Ok(value.as_bytes().to_vec()),
             Self::BLOCK(size) => Ok(vec![0; *size]),
